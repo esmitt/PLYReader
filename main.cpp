@@ -1,5 +1,3 @@
-#define GLFW_DLL 
-#include "GLFW/glfw3.h"
 #include "rply.h"
 #include <stdlib.h>
 #include <string>
@@ -7,169 +5,116 @@
 #include <stdio.h>
 #include <math.h>
 #include <iostream>
+#include <vector>
 
-#pragma comment(lib, "glfw3dll.lib")
-#pragma comment(lib, "opengl32.lib")
 
 using namespace std;
-
-static int vertex_cb(p_ply_argument argument) {
-	long eol;
-	ply_get_argument_user_data(argument, NULL, &eol);
-	printf("%g", ply_get_argument_value(argument));
-	if (eol) printf("\n");
-	else printf(" ");
-	return 1;
-}
-
-static int face_cb(p_ply_argument argument) {
-	long length, value_index;
-	ply_get_argument_property(argument, NULL, &length, &value_index);
-	switch (value_index) {
-	case 0:
-	case 1:
-		printf("%g ", ply_get_argument_value(argument));
-		break;
-	case 2:
-		printf("%g\n", ply_get_argument_value(argument));
-		break;
-	default:
-		break;
-	}
-	return 1;
-}
-//http://w3.impa.br/~diego/software/rply/
-///< Only wrapping the glfw functions
-namespace glfwFunc
+// use this namespace in this way:
+// if (Surface::loadFile(filename)){//code}
+// the vectors are vertex and faces
+namespace Surface
 {
-	GLFWwindow* glfwWindow;
-	const unsigned int WINDOW_WIDTH = 512;
-	const unsigned int WINDOW_HEIGHT = 512;
-	const float NCP = 0.01f;
-	const float FCP = 52.f;
-	const float fAngle = 45.f;
-	string strNameWindow = "Hello GLFW";
-
-	///< Init all data and variables.
-	bool initialize()
+	struct vert
 	{
-		glEnable(GL_DEPTH_TEST);
-		glEnable(GL_CULL_FACE);
+		float x;
+		float y;
+		float z;
+	};
+	struct face
+	{
+		int id0;
+		int id1;
+		int id2;
+	};
 
+	//only use this 2 vectors!
+	vector<vert> vertex;
+	vector<face> faces;
+	
+	//temp data to perform the algorithm
+	vert tempVertex;
+	face tempFace;
+	int iIndex = 0;
+	
+	//vertex callback
+	static int vertex_cb(p_ply_argument argument) {
+		long eol;
+		ply_get_argument_user_data(argument, NULL, &eol);
+		switch (iIndex)
+		{
+		case 0:
+			Surface::tempVertex.x = ply_get_argument_value(argument);
+			iIndex++;
+			break;
+		case 1:
+			Surface::tempVertex.y = ply_get_argument_value(argument);
+			iIndex++;
+			break;
+		case 2:
+			Surface::tempVertex.z = ply_get_argument_value(argument);
+			Surface::vertex.push_back(Surface::tempVertex);
+			iIndex = 0;
+			break;
+		}
+		return 1;
+	}
+
+	//face callback
+	static int face_cb(p_ply_argument argument) {
+		long length, value_index;
+		ply_get_argument_property(argument, NULL, &length, &value_index);
+		switch (value_index) {
+		case 0:
+			tempFace.id0 = (int)ply_get_argument_value(argument);
+			break;
+		case 1:
+			tempFace.id1 = (int)ply_get_argument_value(argument);
+			break;
+		case 2:
+			tempFace.id2 = (int)ply_get_argument_value(argument);
+			faces.push_back(tempFace);
+			break;
+		default:
+			break;
+		}
+		return 1;
+	}
+
+	//just call this function
+	bool loadFile(string filename)
+	{
 		long nvertices, ntriangles;
-		p_ply ply = ply_open("surfaceAB.ply", NULL, 0, NULL);
-		if (!ply) return 1;
+		p_ply ply = ply_open(filename.c_str(), NULL, 0, NULL);
+		if (!ply) return false;
 		if (!ply_read_header(ply)) return false;
-		nvertices = ply_set_read_cb(ply, "vertex", "x", vertex_cb, NULL, 0);
+		nvertices= ply_set_read_cb(ply, "vertex", "x", vertex_cb, NULL, 0);
 		ply_set_read_cb(ply, "vertex", "y", vertex_cb, NULL, 0);
 		ply_set_read_cb(ply, "vertex", "z", vertex_cb, NULL, 1);
 		ntriangles = ply_set_read_cb(ply, "face", "vertex_indices", face_cb, NULL, 0);
-		printf("%ld\n%ld\n", nvertices, ntriangles);
+		//printf("%ld\n%ld\n", nvertices, ntriangles);
 		if (!ply_read(ply)) return false;
 		ply_close(ply);
+		return true;
+	}
+}
 
-    return true;
-	}
-	
-	///< Callback function used by GLFW to capture some possible error.
-	void errorCB(int error, const char* description)
-	{
-		cout << description << endl;
-	}
-
-	///
-	/// The keyboard function call back
-	/// @param window id of the window that received the event
-	/// @param iKey the key pressed or released
-	/// @param iScancode the system-specific scancode of the key.
-	/// @param iAction can be GLFW_PRESS, GLFW_RELEASE or GLFW_REPEAT
-	/// @param iMods Bit field describing which modifier keys were held down (Shift, Alt, & so on)
-	///
-	void keyboardCB(GLFWwindow* window, int iKey, int iScancode, int iAction, int iMods)
-	{
-		if (iAction == GLFW_PRESS)
-		{
-			switch (iKey)
-			{
-				case GLFW_KEY_ESCAPE:
-				case GLFW_KEY_Q:
-					glfwSetWindowShouldClose(window, GL_TRUE);
-					break;
-			}
-		}
-	}
-	
-	///< A private function to replace the classic gluPerspective from OGL
-	void gluPerspective(GLdouble fovY, GLdouble aspect, GLdouble zNear, GLdouble zFar )
-	{
-			const GLdouble pi = 3.1415926535897932384626433832795;
-			GLdouble fW, fH;
-			fH = tan( fovY / 360 * pi ) * zNear;	//fH = tan( (fovY / 2) / 180 * pi ) * zNear;
-			fW = fH * aspect;
-			glFrustum( -fW, fW, -fH, fH, zNear, zFar );
-	}
-	
-	///< The resizing function
-	void resizeCB(GLFWwindow* window, int iWidth, int iHeight)
-	{
-		float ratio = iWidth / float(iHeight);
-		if(iHeight == 0) iHeight = 1;
-		glViewport(0, 0, iWidth, iHeight);
-		
-		glMatrixMode(GL_PROJECTION);
-    glLoadIdentity();
-		gluPerspective(fAngle, ratio, NCP, FCP);
-    glMatrixMode(GL_MODELVIEW);
-	}
-
-	///< The main rendering function.
-	void draw()
-	{
-		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-		glClearColor(0.15f, 0.15f, 0.15f, 1.f);
-		glLoadIdentity();
-		glTranslatef(0.f,0.f,-15.f);
-		// glBegin(GL_TRIANGLES);
-		// 	glColor3f(1.f, 0.f, 0.f);
-		// 	glVertex3f(-0.6f, -0.4f, 0.f);
-		// 	glColor3f(0.f, 1.f, 0.f);
-		// 	glVertex3f(0.6f, -0.4f, 0.f);
-		// 	glColor3f(0.f, 0.f, 1.f);
-		// 	glVertex3f(0.f, 0.6f, 0.f);
-		// glEnd();
-		glfwSwapBuffers(glfwFunc::glfwWindow);
-	}
-	
-	/// Here all data must be destroyed + glfwTerminate
-	void destroy()
-	{
-		glfwDestroyWindow(glfwFunc::glfwWindow);
-		glfwTerminate();
-	}
-};
 
 int main(int argc, char** argv)
 {
-	glfwSetErrorCallback(glfwFunc::errorCB);
-	if (!glfwInit())	exit(EXIT_FAILURE);
-	if(!glfwFunc::initialize()) exit(0);
-	glfwFunc::glfwWindow = glfwCreateWindow(glfwFunc::WINDOW_WIDTH, glfwFunc::WINDOW_HEIGHT, glfwFunc::strNameWindow.c_str(), NULL, NULL);
-	if (!glfwFunc::glfwWindow)
-  {
-    glfwTerminate();
-    exit(EXIT_FAILURE);
-  }
-
-	glfwMakeContextCurrent(glfwFunc::glfwWindow);
-	glfwFunc::resizeCB(glfwFunc::glfwWindow, glfwFunc::WINDOW_WIDTH, glfwFunc::WINDOW_HEIGHT);	//just the 1st time
-	glfwSetKeyCallback(glfwFunc::glfwWindow, glfwFunc::keyboardCB);
-	glfwSetWindowSizeCallback(glfwFunc::glfwWindow, glfwFunc::resizeCB);
-	// main loop!
-	while (!glfwWindowShouldClose(glfwFunc::glfwWindow))
-  {
-		glfwFunc::draw();
-    glfwPollEvents();	//or glfwWaitEvents()
-  }
-	glfwFunc::destroy();
+	if (!Surface::loadFile("surfaceAB.ply"))
+		cout << "not loaded" << endl;
+	else
+	{
+		for each (Surface::vert v in Surface::vertex)
+		{
+			cout << v.x << " " << v.y << " " << v.z << endl;
+		}
+		for each (Surface::face f in Surface::faces)
+		{
+			cout << f.id0 << " " << f.id1 << " " << f.id2 << endl;
+		}
+		cout << "nvertex: " << Surface::vertex.size() << endl;
+		cout << "nfaces: " << Surface::faces.size() << endl;
+	}
 	return EXIT_SUCCESS;
 }
